@@ -1,6 +1,6 @@
 import argparse
 import os
-from typing import Callable, Union
+from typing import Callable, Union, Tuple
 
 import numpy as np
 import torch
@@ -60,21 +60,47 @@ class Attack(object):
         return dataset, loader
 
     @timeit
-    def run(self, one_fold_only: bool = False):
+    def run(self, one_fold_only: bool = True):
         res = np.zeros(4)  # tp, fp, p, n
         sss = StratifiedShuffleSplit(n_splits=10, test_size=0.1)
+        best_model_state = None
+        best_accuracy = 0.0
+        best_fold = 0
         for fold, (train_index, test_index) in enumerate(sss.split(self.flist, self.labels)):
             if one_fold_only and fold > 0:
                 break
             train_list, train_labels = self.flist[train_index], self.labels[train_index]
             test_list, test_labels = self.flist[test_index], self.labels[test_index]
-            res_one_fold = self.train(fold + 1, train_list, train_labels, test_list, test_labels)
+            res_one_fold, model = self.train(fold + 1, train_list, train_labels, test_list, test_labels)
             res += res_one_fold
+            
+            # Calculate accuracy for this fold and keep the best model
+            fold_accuracy = res_one_fold[0] / res_one_fold[2] if res_one_fold[2] > 0 else 0.0
+            if fold_accuracy > best_accuracy:
+                best_accuracy = fold_accuracy
+                best_fold = fold + 1
+                # Save model state to CPU to avoid GPU memory issues
+                best_model_state = {k: v.cpu() for k, v in model.state_dict().items()}
+                self.logger.info(f"*** New best model found at Fold {best_fold} with accuracy {best_accuracy:.4f} ***")
+            
             self.logger.info("-" * 10)
         self.logger.info("Total: tp: {:.0f}, fp: {:.0f}, p: {:.0f}, n: {:.0f}".format(res[0], res[1], res[2], res[3]))
+        
+        # Save the best model across all folds
+        if best_model_state is not None:
+            if not os.path.exists(self.args.checkpoints):
+                os.makedirs(self.args.checkpoints)
+            checkpoint_path = os.path.join(self.args.checkpoints, 'awf_best_model_df_ds_adv.pth')
+            torch.save({
+                'model_state_dict': best_model_state,
+                'best_fold': best_fold,
+                'best_accuracy': best_accuracy,
+                'total_metrics': res.tolist()
+            }, checkpoint_path)
+            self.logger.info(f"Best model (from Fold {best_fold}, accuracy {best_accuracy:.4f}) saved to {checkpoint_path}")
 
     def train(self, fold: int, train_list: np.ndarray, train_labels: np.ndarray, val_list: np.ndarray,
-              val_labels: np.ndarray) -> np.ndarray:
+              val_labels: np.ndarray) -> Tuple[np.ndarray, nn.Module]:
         _, train_loader = self._get_data(train_list, train_labels, self.extract, is_train=True)
         _, val_loader = self._get_data(val_list, val_labels, self.extract, is_train=False)
 
@@ -111,7 +137,7 @@ class Attack(object):
         metrics = val_evaluator.state.metrics
 
         torch.cuda.empty_cache()
-        return np.array(metrics['accuracy'])
+        return np.array(metrics['accuracy']), model
 
     def test(self):
         pass
