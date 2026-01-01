@@ -1,4 +1,4 @@
-name: wfzoo
+name: py38
 channels:
   - defaults
 dependencies:

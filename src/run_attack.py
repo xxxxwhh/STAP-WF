@@ -2,20 +2,20 @@ import argparse
 
 import torch
 
-from attacks import DFAttack, TiktokAttack, RFAttack, VarCNNAttack, AWFAttack, ARESAttack
+from attacks import DFAttack, TiktokAttack, RFAttack
 from utils.general import seed_everything
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='WF transfer project')
-    parser.add_argument('--attack', choices=['df', 'tiktok', 'rf', 'varcnn', 'awf', 'ares'], default='df', help='choose the attack')
+    parser.add_argument('--attack', choices=['df', 'tiktok', 'rf'], default='df', help='choose the attack')
 
     # paths and file config
     parser.add_argument('--data-path', type=str, help="data path")
     parser.add_argument('--checkpoints', type=str, default='./checkpoints/',
                         help='location of model checkpoints')
     parser.add_argument('--suffix', type=str, default='.cell', help='suffix of the output file')
-    parser.add_argument('--one-fold', default=True, action="store_true", help='Run one fold or ten folds')
+    parser.add_argument('--one-fold', default=False, action="store_true", help='Run one fold or ten folds')
     parser.add_argument('--mon-classes', default=100, type=int, help='Number of monitored classes')
     parser.add_argument('--mon-inst', default=100, type=int,
                         help='Number of monitored instances per class')
@@ -62,12 +62,6 @@ if __name__ == '__main__':
         attack = TiktokAttack(args)
     elif args.attack == 'rf':
         attack = RFAttack(args)
-    elif args.attack == 'varcnn':
-        attack = VarCNNAttack(args)
-    elif args.attack == 'awf':
-        attack = AWFAttack(args)
-    elif args.attack == 'ares':
-        attack = ARESAttack(args)
     else:
         raise NotImplementedError("Attack not implemented")
 

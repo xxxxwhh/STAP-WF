@@ -161,4 +161,3 @@ cython_debug/
 defense_results
 data/
 src/scripts
-/raw-data-50-1000/
