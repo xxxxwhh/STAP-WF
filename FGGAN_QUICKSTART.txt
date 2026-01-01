@@ -1,0 +1,121 @@
+================================
+改进FG-GAN 快速启动指南
+================================
+
+## 预训练模型路径
+- G₁ (traffic_generator): /data_2_mnt/xuwenhai/wfzoo/src/checkpoints/generator/best_generator.pth
+- RFNet (代理模型): /data_2_mnt/xuwenhai/wfzoo/src/checkpoints/best_model.pth
+
+## 步骤1: 测试系统设置
+运行测试脚本验证所有组件正常:
+
+```bash
+cd E:\PythonFile\wfzoo
+python src/test_fggan_setup.py \
+    --generator-g1 /data_2_mnt/xuwenhai/wfzoo/src/checkpoints/generator/best_generator.pth \
+    --proxy-rf /data_2_mnt/xuwenhai/wfzoo/src/checkpoints/best_model.pth
+```
+
+预期输出:
+✅ ConvTGen 测试通过!
+✅ G₁ 测试通过!
+✅ RFNet 测试通过!
+✅ 完整Pipeline测试通过!
+
+## 步骤2: 训练改进FG-GAN
+
+### 方式A: 使用shell脚本 (推荐)
+```bash
+bash scripts/train_fggan.sh
+```
+
+### 方式B: 直接运行Python
+```bash
+python src/run_fggan.py \
+    --data-path "E:/PythonFile/wfzoo/data/DF19" \
+    --mon-classes 95 \
+    --mon-inst 1000 \
+    --generator-g1 /data_2_mnt/xuwenhai/wfzoo/src/checkpoints/generator/best_generator.pth \
+    --proxy-rf /data_2_mnt/xuwenhai/wfzoo/src/checkpoints/best_model.pth \
+    --checkpoints ./checkpoints/fggan_improved \
+    --batch-size 32 \
+    --epochs 100 \
+    --lr0 0.0002 \
+    --n-critic 5 \
+    --workers 4 \
+    --use-gpu \
+    --gpu 0 \
+    --save-interval 10 \
+    --seed 42
+```
+
+训练输出示例:
+Epoch 1/100 | D: 0.1234 | GP: 0.0567 | G_GAN: -0.0890 | G_ADV: 0.2345 | G_DIST: 1.2345 | ASR: 45.67%
+
+## 步骤3: 生成对抗样本
+
+训练完成后,使用训练好的模型生成对抗样本:
+
+```bash
+python src/generate_adversarial.py \
+    --data-path "E:/PythonFile/wfzoo/data/DF19" \
+    --mon-classes 95 \
+    --mon-inst 100 \
+    --fggan-model ./checkpoints/fggan_improved/fggan_final.pth \
+    --generator-g1 /data_2_mnt/xuwenhai/wfzoo/src/checkpoints/generator/best_generator.pth \
+    --proxy-rf /data_2_mnt/xuwenhai/wfzoo/src/checkpoints/best_model.pth \
+    --output-dir ./adversarial_samples \
+    --num-samples 1000 \
+    --use-gpu \
+    --gpu 0
+```
+
+输出:
+- ./adversarial_samples/adversarial_samples.npz (TAM格式)
+- ./adversarial_samples/traces/*.cell (trace格式)
+- ./adversarial_samples/evaluation.json (评估结果)
+
+## 关键参数说明
+
+### 训练参数
+- --batch-size: 批次大小 (默认32,根据显存调整)
+- --epochs: 训练轮数 (建议100-200)
+- --lr0: 学习率 (默认0.0002)
+- --n-critic: 判别器更新次数 (WGAN-GP通常5次)
+- --save-interval: 保存checkpoint间隔
+
+### 生成参数
+- --num-samples: 生成样本数 (0=全部数据)
+
+## 架构说明
+
+ConvTGen输出: [batch, 2500, 2]
+  - [:, :, 0]: 时间戳 [0, 80]秒
+  - [:, :, 1]: 方向 ±1
+
+扰动应用:
+1. G₁生成TAM原型
+2. G₂(ConvTGen)生成时序扰动
+3. 扰动转换为哑包插入原始trace
+4. 对抗trace转换为TAM用于判别
+
+损失函数:
+- L_G2 = α·L_adv + β·L_gan + γ·L_dist
+  - L_adv: C&W风格对抗损失 (RFNet)
+  - L_gan: WGAN-GP生成损失
+  - L_dist: L2范数扰动距离
+
+## 故障排除
+
+1. CUDA OOM错误
+   → 减小 --batch-size
+
+2. 加载checkpoint失败
+   → 检查路径是否正确
+   → 确认模型格式匹配
+
+3. ASR过低
+   → 增加训练轮数
+   → 调整损失权重 (修改fggan_improved.py中的alpha/beta/gamma)
+
+================================
